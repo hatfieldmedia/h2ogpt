@@ -212,6 +212,9 @@ def run_h2ogpt_docker(port, base_model, inference_server=None, max_new_tokens=No
                         '-p', '%s:7860' % port,
                         '-v', '%s/.cache:/workspace/.cache/' % home_dir,
                         '-v', 'save:/save',
+                        '-v', '/etc/passwd:/etc/passwd:ro',
+                        '-v', '/etc/group:/etc/group:ro',
+                        '-u', '%s:%s' % (os.getuid(), os.getgid()),
                         '-e', 'CUDA_VISIBLE_DEVICES=%s' % os.getenv('CUDA_VISIBLE_DEVICES', '0'),
                         '-e', 'HUGGING_FACE_HUB_TOKEN=%s' % os.environ['HUGGING_FACE_HUB_TOKEN'],
                         '--network', 'host',
@@ -232,6 +235,10 @@ def run_h2ogpt_docker(port, base_model, inference_server=None, max_new_tokens=No
                         ]
     if inference_server:
         cmd.extend(['--inference_server=%s' % inference_server])
+
+    # make sure mounted dirs exist and belong to current user
+    subprocess.check_output(['mkdir', '-p', 'save'])
+    subprocess.check_output(['mkdir', '-p', '%s/.cache' % home_dir])
 
     print(cmd, flush=True)
     docker_hash = subprocess.check_output(cmd).decode().strip()
