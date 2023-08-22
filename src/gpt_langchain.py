@@ -1465,7 +1465,7 @@ def file_to_doc(file, base_path=None, verbose=False, fail_any_exception=False,
                 # then something went wrong, try another loader:
                 # but requires Chrome binary, else get: selenium.common.exceptions.WebDriverException:
                 # Message: unknown error: cannot find Chrome binary
-                from langchain.document_loaders import SeleniumURLLoader
+                from hm_selenium import SeleniumURLLoader
                 from selenium.common.exceptions import WebDriverException
                 try:
                     docs1 = SeleniumURLLoader(urls=[file]).load()
