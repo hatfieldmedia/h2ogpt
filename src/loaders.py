@@ -1,6 +1,6 @@
 import functools
 
-from src.enums import t5_type
+from enums import t5_type
 
 
 def get_loaders(model_name, reward_type, llama_type=None, load_gptq='', load_exllama=False, config=None,

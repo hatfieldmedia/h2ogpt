@@ -40,7 +40,7 @@ class SeleniumURLLoader(langchain.document_loaders.SeleniumURLLoader):
           let r = await readability()
           done(r.textContent)
         """)
-        logger.error(text)
+        # logger.error(text)
         # page_content = driver.page_source // originally this
         # elements = partition_html(text=page_content)
         # text = "\n\n".join([str(el) for el in elements])
