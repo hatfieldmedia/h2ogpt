@@ -11,6 +11,8 @@ from src.utils import download_simple
 
 results_file = "./benchmarks/perf.json"
 
+@pytest.mark.skipif(not os.getenv('BENCHMARK'),
+                    reason="Only for benchmarking")
 @pytest.mark.parametrize("backend", [
     # 'transformers',
     # 'text-generation-inference',
@@ -36,11 +38,13 @@ results_file = "./benchmarks/perf.json"
     "4-bit",
 ])
 @pytest.mark.parametrize("ngpus", [
+    0,
     1,
     2,
     4,
     8,
 ], ids=[
+    "CPU",
     "1 GPU",
     "2 GPUs",
     "4 GPUs",
@@ -54,7 +58,7 @@ def test_perf_benchmarks(backend, base_model, task, bits, ngpus):
     from datetime import datetime
     import json
     import socket
-    os.environ['CUDA_VISIBLE_DEVICES'] = "0" if ngpus == 1 else ",".join([str(x) for x in range(ngpus)])
+    os.environ['CUDA_VISIBLE_DEVICES'] = "" if ngpus == 0 else "0" if ngpus == 1 else ",".join([str(x) for x in range(ngpus)])
     import torch
     n_gpus = torch.cuda.device_count()
     if n_gpus != ngpus:
@@ -77,9 +81,9 @@ def test_perf_benchmarks(backend, base_model, task, bits, ngpus):
     # get GPU memory, assumes homogeneous system
     cmd = 'nvidia-smi -i 0 -q | grep -A 1 "FB Memory Usage" | cut -d: -f2 | tail -n 1'
     o = subprocess.check_output(cmd, shell=True, timeout=15)
-    mem_gpu = o.decode("utf-8").splitlines()[0].strip()
+    mem_gpu = o.decode("utf-8").splitlines()[0].strip() if n_gpus else 0
 
-    bench_dict["gpus"] = "%d x %s (%s)" % (n_gpus, gpu_list[0], mem_gpu)
+    bench_dict["gpus"] = "%d x %s (%s)" % (n_gpus, gpu_list[0], mem_gpu) if n_gpus else "CPU"
     assert all([x == gpu_list[0] for x in gpu_list])
     print(bench_dict)
 
@@ -90,7 +94,7 @@ def test_perf_benchmarks(backend, base_model, task, bits, ngpus):
     try:
         h2ogpt_args = dict(base_model=base_model,
              chat=True, gradio=True, num_beams=1, block_gradio_exit=False, verbose=True,
-             load_half=bits == 16,
+             load_half=bits == 16 and n_gpus,
              load_8bit=bits == 8,
              load_4bit=bits == 4,
              langchain_mode='MyData',
@@ -149,7 +153,12 @@ def test_perf_benchmarks(backend, base_model, task, bits, ngpus):
             chunk = True
             chunk_size = 512
             langchain_mode = 'MyData'
-            res = client.predict(test_file_server, chunk, chunk_size, langchain_mode, api_name='/add_file_api')
+            embed = True
+            loaders = tuple([None, None, None, None])
+            res = client.predict(test_file_server,
+                                 chunk, chunk_size, langchain_mode, embed,
+                                 *loaders,
+                                 api_name='/add_file_api')
             assert res[0] is None
             assert res[1] == langchain_mode
             # assert os.path.basename(test_file_server) in res[2]
@@ -166,6 +175,7 @@ def test_perf_benchmarks(backend, base_model, task, bits, ngpus):
                           max_time=300,
                           do_sample=False,
                           prompt_summary='Summarize into single paragraph',
+                          system_prompt='',
                           )
 
             t0 = time.time()
@@ -246,7 +256,7 @@ def test_plot_results():
             print("# Backend: %s" % backend, file=f)
             for base_model in pd.unique(X['base_model']):
                 print("## Model: %s (%s)" % (base_model, backend), file=f)
-                for n_gpus in pd.unique(X['n_gpus']):
+                for n_gpus in sorted(pd.unique(X['n_gpus'])):
                     XX = X[(X['base_model'] == base_model) & (X['backend'] == backend) & (X['n_gpus'] == n_gpus)]
                     if XX.shape[0] == 0:
                         continue

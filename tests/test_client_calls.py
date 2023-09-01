@@ -9,7 +9,7 @@ import pytest
 from tests.utils import wrap_test_forked, make_user_path_test, get_llama, get_inf_server, get_inf_port
 from src.client_test import get_client, get_args, run_client_gen
 from src.enums import LangChainAction, LangChainMode, no_model_str, no_lora_str, no_server_str
-from src.utils import get_githash, remove, download_simple, hash_file, makedirs
+from src.utils import get_githash, remove, download_simple, hash_file, makedirs, lg_to_gr
 
 
 @wrap_test_forked
@@ -746,9 +746,19 @@ def test_text_generation_inference_server1():
 
 @pytest.mark.need_tokens
 @wrap_test_forked
-def test_client_chat_stream_langchain_steps3():
+@pytest.mark.parametrize("loaders", ['all', None])
+def test_client_chat_stream_langchain_steps3(loaders):
     os.environ['VERBOSE_PIPELINE'] = '1'
     user_path = make_user_path_test()
+
+    if loaders is None:
+        loaders = tuple([None, None, None, None])
+    else:
+        image_loaders_options0, image_loaders_options, \
+            pdf_loaders_options0, pdf_loaders_options, \
+            url_loaders_options0, url_loaders_options = \
+            lg_to_gr(enable_ocr=True, enable_captions=True, enable_pdf_ocr=True, enable_doctr=True, max_quality=True)
+        loaders = [image_loaders_options, pdf_loaders_options, url_loaders_options, None]
 
     stream_output = True
     max_new_tokens = 256
@@ -772,7 +782,10 @@ def test_client_chat_stream_langchain_steps3():
     url = 'https://www.africau.edu/images/default/sample.pdf'
     test_file1 = os.path.join('/tmp/', 'sample1.pdf')
     download_simple(url, dest=test_file1)
-    res = client.predict(test_file1, True, 512, langchain_mode, api_name='/add_file_api')
+    res = client.predict(test_file1,
+                         langchain_mode, True, 512, True,
+                         *loaders,
+                         api_name='/add_file_api')
     assert res[0] is None
     assert res[1] == langchain_mode
     # note moves from /tmp to stable path, even though not /tmp/gradio upload from UI
@@ -787,7 +800,9 @@ def test_client_chat_stream_langchain_steps3():
     new_langchain_mode_text = '%s, %s, %s' % (langchain_mode2, 'shared', user_path2)
     res = client.predict(langchain_mode, new_langchain_mode_text, api_name='/new_langchain_mode_text')
     assert res[0]['value'] == langchain_mode2
-    assert langchain_mode2 in res[0]['choices']
+    # odd gradio change
+    res0_choices = [x[0] for x in res[0]['choices']]
+    assert langchain_mode2 in res0_choices
     assert res[1] == ''
     assert res[2]['headers'] == ['Collection', 'Type', 'Path', 'Directory']
     res[2]['data'] = [[x[0], x[1], x[2]] for x in res[2]['data']]  # ignore persist_directory
@@ -800,7 +815,9 @@ def test_client_chat_stream_langchain_steps3():
     test_file1 = os.path.join('/tmp/', 'pdf-sample.pdf')
     # download_simple(url, dest=test_file1)
     shutil.copy('tests/pdf-sample.pdf', test_file1)
-    res = client.predict(test_file1, True, 512, langchain_mode2, api_name='/add_file_api')
+    res = client.predict(test_file1, langchain_mode2, True, 512, True,
+                         *loaders,
+                         api_name='/add_file_api')
     assert res[0] is None
     assert res[1] == langchain_mode2
     assert 'file/%s/pdf-sample.pdf' % user_path2 in res[2] or 'file/%s\pdf-sample.pdf' % user_path2 in res[2]
@@ -857,7 +874,9 @@ def test_client_chat_stream_langchain_steps3():
 
     # refresh
     shutil.copy('tests/next.txt', user_path)
-    res = client.predict(langchain_mode, True, 512, api_name='/refresh_sources')
+    res = client.predict(langchain_mode, True, 512,
+                         *loaders,
+                         api_name='/refresh_sources')
     sources_expected = 'file/%s/next.txt' % user_path
     assert sources_expected in res or sources_expected.replace('\\', '/').replace('\r', '') in res.replace('\\',
                                                                                                            '/').replace(
@@ -880,7 +899,8 @@ def test_client_chat_stream_langchain_steps3():
 
     # even normal langchain_mode  passed to this should get the other langchain_mode2
     res = client.predict(langchain_mode, api_name='/load_langchain')
-    assert res[0]['choices'] == [langchain_mode, 'MyData', 'github h2oGPT', 'LLM', langchain_mode2]
+    res0_choices = [x[0] for x in res[0]['choices']]
+    assert res0_choices == [langchain_mode, 'MyData', 'github h2oGPT', 'LLM', langchain_mode2]
     assert res[0]['value'] == langchain_mode
     assert res[1]['headers'] == ['Collection', 'Type', 'Path', 'Directory']
     res[1]['data'] = [[x[0], x[1], x[2]] for x in res[1]['data']]  # ignore persist_directory
@@ -894,14 +914,18 @@ def test_client_chat_stream_langchain_steps3():
     assert res is not None
 
     url = 'https://research.google/pubs/pub334.pdf'
-    res = client.predict(url, True, 512, langchain_mode, api_name='/add_url')
+    res = client.predict(url, langchain_mode, True, 512, True,
+                         *loaders,
+                         api_name='/add_url')
     assert res[0] is None
     assert res[1] == langchain_mode
     assert url in res[2]
     assert res[3] == ''
 
     text = "Yufuu is a wonderful place and you should really visit because there is lots of sun."
-    res = client.predict(text, True, 512, langchain_mode, api_name='/add_text')
+    res = client.predict(text, langchain_mode, True, 512, True,
+                         *loaders,
+                         api_name='/add_text')
     assert res[0] is None
     assert res[1] == langchain_mode
     user_paste_dir = makedirs('user_paste', use_base=True)
@@ -916,7 +940,9 @@ def test_client_chat_stream_langchain_steps3():
     url = 'https://www.africau.edu/images/default/sample.pdf'
     test_file1 = os.path.join('/tmp/', 'sample1.pdf')
     download_simple(url, dest=test_file1)
-    res = client.predict(test_file1, True, 512, langchain_mode_my, api_name='/add_file_api')
+    res = client.predict(test_file1, langchain_mode_my, True, 512, True,
+                         *loaders,
+                         api_name='/add_file_api')
     assert res[0] is None
     assert res[1] == langchain_mode_my
     # will just use source location, e.g. for UI will be /tmp/gradio
@@ -932,7 +958,8 @@ def test_client_chat_stream_langchain_steps3():
     new_langchain_mode_text = '%s, %s, %s' % (langchain_mode2, 'personal', user_path2b)
     res = client.predict(langchain_mode2, new_langchain_mode_text, api_name='/new_langchain_mode_text')
     assert res[0]['value'] == langchain_mode2
-    assert langchain_mode2 in res[0]['choices']
+    res0_choices = [x[0] for x in res[0]['choices']]
+    assert langchain_mode2 in res0_choices
     assert res[1] == ''
     assert res[2]['headers'] == ['Collection', 'Type', 'Path', 'Directory']
     res[2]['data'] = [[x[0], x[1], x[2]] for x in res[2]['data']]  # ignore persist_directory
@@ -946,7 +973,9 @@ def test_client_chat_stream_langchain_steps3():
     test_file1 = os.path.join('/tmp/', 'pdf-sample.pdf')
     # download_simple(url, dest=test_file1)
     shutil.copy('tests/pdf-sample.pdf', test_file1)
-    res = client.predict(test_file1, True, 512, langchain_mode2, api_name='/add_file_api')
+    res = client.predict(test_file1, langchain_mode2, True, 512, True,
+                         *loaders,
+                         api_name='/add_file_api')
     assert res[0] is None
     assert res[1] == langchain_mode2
     sources_expected = 'file//tmp/pdf-sample.pdf'
@@ -965,7 +994,9 @@ def test_client_chat_stream_langchain_steps3():
         urls_file = os.path.join(tmp_user_path, 'list.urls')
         with open(urls_file, 'wt') as f:
             f.write('\n'.join(urls))
-        res = client.predict(urls_file, True, 512, langchain_mode2, api_name='/add_file_api')
+        res = client.predict(urls_file, langchain_mode2, True, 512, True,
+                             *loaders,
+                             api_name='/add_file_api')
         assert res[0] is None
         assert res[1] == langchain_mode2
         assert [x in res[2] or x.replace('https', 'http') in res[2] for x in urls]
@@ -976,7 +1007,8 @@ def test_client_chat_stream_langchain_steps3():
     new_langchain_mode_text = '%s, %s, %s' % (langchain_mode3, 'personal', user_path3)
     res = client.predict(langchain_mode3, new_langchain_mode_text, api_name='/new_langchain_mode_text')
     assert res[0]['value'] == langchain_mode3
-    assert langchain_mode3 in res[0]['choices']
+    res0_choices = [x[0] for x in res[0]['choices']]
+    assert langchain_mode3 in res0_choices
     assert res[1] == ''
     assert res[2]['headers'] == ['Collection', 'Type', 'Path', 'Directory']
     res[2]['data'] = [[x[0], x[1], x[2]] for x in res[2]['data']]  # ignore persist_directory
@@ -989,7 +1021,9 @@ def test_client_chat_stream_langchain_steps3():
                               ]
 
     with tempfile.TemporaryDirectory() as tmp_user_path:
-        res = client.predict(urls, True, 512, langchain_mode3, api_name='/add_url')
+        res = client.predict(urls, langchain_mode3, True, 512, True,
+                             *loaders,
+                             api_name='/add_url')
         print(res)
         assert res[0] is None
         assert res[1] == langchain_mode3
@@ -1018,7 +1052,8 @@ def test_client_chat_stream_langchain_steps3():
 
     res = client.predict(langchain_mode3, langchain_mode3, api_name='/remove_langchain_mode_text')
     assert res[0]['value'] == langchain_mode3
-    assert langchain_mode2 in res[0]['choices']
+    res0_choices = [x[0] for x in res[0]['choices']]
+    assert langchain_mode2 in res0_choices
     assert res[1] == ''
     assert res[2]['headers'] == ['Collection', 'Type', 'Path', 'Directory']
     res[2]['data'] = [[x[0], x[1], x[2]] for x in res[2]['data']]  # ignore persist_directory
@@ -1032,7 +1067,8 @@ def test_client_chat_stream_langchain_steps3():
     res = client.predict(langchain_mode, langchain_mode, api_name='/purge_langchain_mode_text')
     assert not os.path.isdir("db_dir_%s" % langchain_mode)
     assert res[0]['value'] == langchain_mode
-    assert langchain_mode not in res[0]['choices']
+    res0_choices = [x[0] for x in res[0]['choices']]
+    assert langchain_mode not in res0_choices
     assert res[1] == ''
     assert res[2]['headers'] == ['Collection', 'Type', 'Path', 'Directory']
     res[2]['data'] = [[x[0], x[1], x[2]] for x in res[2]['data']]  # ignore persist_directory
@@ -1153,7 +1189,9 @@ def test_client_chat_stream_langchain_openai_embeddings():
     url = 'https://www.africau.edu/images/default/sample.pdf'
     test_file1 = os.path.join('/tmp/', 'sample1.pdf')
     download_simple(url, dest=test_file1)
-    res = client.predict(test_file1, True, 512, langchain_mode, api_name='/add_file_api')
+    res = client.predict(test_file1, langchain_mode, True, 512, True,
+                         None, None, None, None,
+                         api_name='/add_file_api')
     assert res[0] is None
     assert res[1] == langchain_mode
     # note moves from /tmp to stable path, even though not /tmp/gradio upload from UI
@@ -1165,6 +1203,91 @@ def test_client_chat_stream_langchain_openai_embeddings():
     assert use_openai_embedding
     assert hf_embedding_model == 'hkunlp/instructor-large'  # but not used
     assert got_embedding
+
+
+@wrap_test_forked
+def test_client_chat_stream_langchain_fake_embeddings():
+    os.environ['VERBOSE_PIPELINE'] = '1'
+    remove('db_dir_UserData')
+
+    stream_output = True
+    max_new_tokens = 256
+    # base_model = 'distilgpt2'
+    base_model = 'h2oai/h2ogpt-oig-oasst1-512-6_9b'
+    prompt_type = 'human_bot'
+    langchain_mode = 'UserData'
+    langchain_modes = ['UserData', 'MyData', 'github h2oGPT', 'LLM', 'Disabled']
+
+    local_server = True  # set to False to test local server, e.g. gradio connected to TGI server
+    if local_server:
+        from src.gen import main
+        main(base_model=base_model, prompt_type=prompt_type, chat=True,
+             stream_output=stream_output, gradio=True, num_beams=1, block_gradio_exit=False,
+             max_new_tokens=max_new_tokens,
+             langchain_mode=langchain_mode,
+             langchain_modes=langchain_modes,
+             use_openai_embedding=True,
+             verbose=True)
+
+    from src.client_test import get_client, get_args, run_client
+    # serialize=False would lead to returning dict for some objects or files for get_sources
+    client = get_client(serialize=False)
+
+    texts = ['first', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'last']
+    langchain_mode = "UserData"
+    res = client.predict(texts,
+                         langchain_mode, True, 512, False,
+                         None, None, None, None,
+                         api_name='/add_text')
+    assert res[0] is None
+    assert res[1] == langchain_mode
+    assert all([x in res[2] for x in texts])
+    assert res[3] == ''
+
+    from src.gpt_langchain import load_embed
+    got_embedding, use_openai_embedding, hf_embedding_model = load_embed(persist_directory='db_dir_%s' % langchain_mode)
+    assert not use_openai_embedding
+    assert hf_embedding_model == 'fake'
+    assert got_embedding
+
+    api_name = '/submit_nochat_api'  # NOTE: like submit_nochat but stable API for string dict passing
+
+    prompt = "Documents"
+    kwargs = dict(
+        instruction='',
+        max_new_tokens=200,
+        min_new_tokens=1,
+        max_time=300,
+        do_sample=False,
+        instruction_nochat=prompt,
+    )
+    res = client.predict(
+        str(dict(kwargs)),
+        api_name=api_name,
+    )
+    print("Raw client result: %s" % res, flush=True)
+    assert isinstance(res, str)
+    res_dict = ast.literal_eval(res)
+    assert 'response' in res_dict and res_dict['response']
+
+    kwargs.update(dict(
+        langchain_mode=langchain_mode,
+        langchain_action="Query",
+        top_k_docs=-1,
+        document_subset='Relevant',
+        document_choice='All',
+    ))
+    res = client.predict(
+        str(dict(kwargs)),
+        api_name=api_name,
+    )
+    print("Raw client result: %s" % res, flush=True)
+    assert isinstance(res, str)
+    res_dict = ast.literal_eval(res)
+    assert 'response' in res_dict and res_dict['response']
+    sources = res_dict['sources']
+    texts_out = [x['content'] for x in sources]
+    assert texts == texts_out
 
 
 @pytest.mark.parametrize("prompt_summary", ['', 'Summarize into single paragraph'])
@@ -1209,7 +1332,10 @@ def test_client_summarization(prompt_summary):
     chunk = True
     chunk_size = 512
     langchain_mode = 'MyData'
-    res = client.predict(test_file_server, chunk, chunk_size, langchain_mode, api_name='/add_file_api')
+    res = client.predict(test_file_server,
+                         langchain_mode, chunk, chunk_size, True,
+                         None, None, None, None,
+                         api_name='/add_file_api')
     assert res[0] is None
     assert res[1] == langchain_mode
     assert os.path.basename(test_file_server) in res[2]
@@ -1244,7 +1370,8 @@ def test_client_summarization(prompt_summary):
         assert 'various techniques and approaches in speech recognition' in summary or \
                'capabilities of speech processing systems' in summary or \
                'speech recognition' in summary
-    assert 'my_test_pdf.pdf' in sources
+    assert 'Robust Speech Recognition' in [x['content'] for x in sources][0]
+    assert 'my_test_pdf.pdf' in [x['source'] for x in sources][0]
 
 
 @pytest.mark.need_tokens
@@ -1274,7 +1401,10 @@ def test_client_summarization_from_text():
     chunk = True
     chunk_size = 512
     langchain_mode = 'MyData'
-    res = client.predict(all_text_contents, chunk, chunk_size, langchain_mode, api_name='/add_text')
+    res = client.predict(all_text_contents,
+                         langchain_mode, chunk, chunk_size, True,
+                         None, None, None, None,
+                         api_name='/add_text')
     assert res[0] is None
     assert res[1] == langchain_mode
     assert 'user_paste' in res[2]
@@ -1298,7 +1428,8 @@ def test_client_summarization_from_text():
     summary = res['response']
     sources = res['sources']
     assert 'Whisper' in summary or 'robust speech recognition system' in summary
-    assert 'user_paste' in sources
+    assert 'Robust Speech Recognition' in [x['content'] for x in sources][0]
+    assert 'user_paste' in [x['source'] for x in sources][0]
 
 
 @pytest.mark.parametrize("url", ['https://cdn.openai.com/papers/whisper.pdf', 'https://github.com/h2oai/h2ogpt'])
@@ -1319,7 +1450,10 @@ def test_client_summarization_from_url(url, top_k_docs):
     chunk = True
     chunk_size = 512
     langchain_mode = 'MyData'
-    res = client.predict(url, chunk, chunk_size, langchain_mode, api_name='/add_url')
+    res = client.predict(url,
+                         langchain_mode, chunk, chunk_size, True,
+                         None, None, None, None,
+                         api_name='/add_url')
     assert res[0] is None
     assert res[1] == langchain_mode
     assert url in res[2]
@@ -1346,13 +1480,15 @@ def test_client_summarization_from_url(url, top_k_docs):
         assert 'Whisper' in summary or \
                'robust speech recognition system' in summary or \
                'speech recognition' in summary
+        assert 'Robust Speech Recognition' in [x['content'] for x in sources][0]
     if 'h2ogpt' in url:
         assert 'Accurate embeddings for private offline databases' in summary \
                or 'private offline database' in summary \
                or 'H2OGPT is an open-source project' in summary \
                or 'is an open-source project for document Q/A' in summary \
                or 'h2oGPT is an open-source project' in summary
-    assert url in sources
+        assert 'h2oGPT' in [x['content'] for x in sources][0]
+    assert url in [x['source'] for x in sources][0]
 
 
 @pytest.mark.parametrize("prompt_type", ['instruct_vicuna', 'one_shot'])
@@ -1400,7 +1536,10 @@ def test_fastsys(stream_output, bits, prompt_type):
     chunk = True
     chunk_size = 512
     langchain_mode = 'MyData'
-    res = client.predict(test_file_server, chunk, chunk_size, langchain_mode, api_name='/add_file_api')
+    res = client.predict(test_file_server,
+                         langchain_mode, chunk, chunk_size, True,
+                         None, None, None, None,
+                         api_name='/add_file_api')
     assert res[0] is None
     assert res[1] == langchain_mode
     assert os.path.basename(test_file_server) in res[2]
@@ -1426,5 +1565,5 @@ def test_fastsys(stream_output, bits, prompt_type):
                """Whisper  is  a  speech  processing  system  that  is  designed  to  generalize  well  across  domains,  tasks,  and  languages.  It  is  based  on  a  single  robust  architecture  that  is  trained  on  a  wide  set  of  existing  datasets,  and  it  is  able  to  generalize  well  across  domains,  tasks,  and  languages.  The  goal  of  Whisper  is  to  develop  a  single  robust  speech  processing  system  that  works  reliably  without  the  need  for  dataset-specific  fine-tuning  to  achieve  high-quality  results  on  specific  distributions.""" in response
     else:
         assert """single  robust  speech  processing  system  that  works""" in response or """Whisper""" in response
-    sources = res_dict['sources']
-    assert 'my_test_pdf.pdf' in sources
+    sources = [x['source'] for x in res_dict['sources']]
+    assert 'my_test_pdf.pdf' in sources[0]

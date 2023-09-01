@@ -616,6 +616,14 @@ def download(url, dest=None, dest_path=None):
     return dest
 
 
+def get_doc(x):
+    return x.page_content
+
+
+def get_source(x):
+    return x.metadata.get('source', "UNKNOWN SOURCE")
+
+
 def get_accordion(x, font_size=2, head_acc=50):
     title = x.page_content[:head_acc].replace("\n", ' ').replace("<br>", ' ').replace("<p>", ' ').replace("\r", ' ')
     content = x.page_content
@@ -941,7 +949,6 @@ def get_kwargs(func, exclude_names=None, **kwargs):
 
 from importlib.metadata import distribution, PackageNotFoundError
 
-
 have_faiss = False
 
 try:
@@ -1067,7 +1074,12 @@ import distutils.spawn
 
 have_tesseract = distutils.spawn.find_executable("tesseract")
 have_libreoffice = distutils.spawn.find_executable("libreoffice")
-
+try:
+    from weasyprint import HTML
+    import doctr
+    have_doctr = True
+except:
+    have_doctr = False
 
 try:
     assert distribution('arxiv') is not None
@@ -1100,14 +1112,15 @@ try:
 except (PackageNotFoundError, AssertionError):
     have_playwright = False
 
+try:
+    assert distribution('jq') is not None
+    have_jq = True
+except (PackageNotFoundError, AssertionError):
+    have_jq = False
 
 only_unstructured_urls = os.environ.get("ONLY_UNSTRUCTURED_URLS", "0") == "1"
 only_selenium = os.environ.get("ONLY_SELENIUM", "0") == "1"
 only_playwright = os.environ.get("ONLY_PLAYWRIGHT", "0") == "1"
-keep_playwright = os.environ.get("KEEP_PLAYWRIGHT", "0") == "1"
-if not only_playwright or keep_playwright:
-    # disable, hangs too often
-    have_playwright = False
 
 
 def set_openai(inference_server):
@@ -1210,3 +1223,60 @@ def text_to_html(x):
 %s
 </pre>
 """ % x
+
+
+def lg_to_gr(
+        **kwargs,
+):
+    # translate:
+    import torch
+    n_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    n_gpus, gpu_ids = cuda_vis_check(n_gpus)
+    if n_gpus != 0:
+        image_loaders_options = ['Caption', 'CaptionBlip2']
+    else:
+        image_loaders_options = ['Caption']
+    if have_tesseract:
+        image_loaders_options.append('OCR')
+    if have_doctr:
+        image_loaders_options.append('DocTR')
+    image_loaders_options0 = []
+    if have_tesseract and kwargs['enable_ocr']:
+        image_loaders_options0.append('OCR')
+    if have_doctr and kwargs['enable_doctr']:
+        image_loaders_options0.append('DocTR')
+    if kwargs['enable_captions']:
+        if kwargs['max_quality'] and n_gpus > 0:
+            # BLIP2 only on GPU
+            image_loaders_options0.append('CaptionBlip2')
+        else:
+            image_loaders_options0.append('Caption')
+    assert len(set(image_loaders_options0).difference(image_loaders_options)) == 0
+
+    pdf_loaders_options = ['PyMuPDF', 'Unstructured', 'PyPDF', 'TryHTML']
+    if have_tesseract:
+        pdf_loaders_options.append('OCR')
+    pdf_loaders_options0 = ['PyMuPDF']
+    assert len(set(pdf_loaders_options0).difference(pdf_loaders_options)) == 0
+    if kwargs['enable_pdf_ocr'] == 'on':
+        pdf_loaders_options0.append('OCR')
+
+    url_loaders_options = []
+    if only_unstructured_urls:
+        url_loaders_options.append('Unstructured')
+    elif have_selenium and only_selenium:
+        url_loaders_options.append('Selenium')
+    elif have_playwright and only_playwright:
+        url_loaders_options.append('PlayWright')
+    else:
+        url_loaders_options.append('Unstructured')
+        if have_selenium:
+            url_loaders_options.append('Selenium')
+        if have_playwright:
+            url_loaders_options.append('PlayWright')
+    url_loaders_options0 = [url_loaders_options[0]]
+    assert len(set(url_loaders_options0).difference(url_loaders_options)) == 0
+
+    return image_loaders_options0, image_loaders_options, \
+        pdf_loaders_options0, pdf_loaders_options, \
+        url_loaders_options0, url_loaders_options
